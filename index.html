@@ -104,6 +104,18 @@
   .toast.show{opacity:1}
   .hidden{display:none!important}
   .err{background:#2a1416;border:1px solid #5b2329;color:#ffb3bd;border-radius:12px;padding:12px;margin-top:14px;font-size:13.5px;line-height:1.5}
+  .fab{position:fixed;top:14px;right:14px;z-index:40;appearance:none;border:1px solid var(--line);background:var(--panel2);color:var(--ink);border-radius:11px;padding:9px 13px;font-size:12.5px;font-weight:800;cursor:pointer}
+  .fab:hover{border-color:#3a4250}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:60;padding:18px}
+  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;max-width:460px;width:100%;max-height:86vh;overflow:auto}
+  .mh{display:flex;align-items:center;gap:10px}
+  .mh h3{margin:0;font-size:16px;flex:1}
+  .x{appearance:none;border:1px solid var(--line);background:transparent;color:var(--mut);border-radius:8px;padding:5px 9px;cursor:pointer}
+  .msub{color:var(--mut);font-size:12.5px;margin:6px 0 12px}
+  .ta{width:100%;min-height:90px;background:#0c0e12;border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:11px;font:inherit;font-size:14px;outline:none;resize:vertical}
+  #fbSend{margin-top:10px;width:100%}
+  .fbitem{font-size:12.5px;border-top:1px solid var(--line);padding:9px 0;display:flex;gap:8px;align-items:flex-start}
+  .fbitem .ft{flex:1}
 </style>
 </head>
 <body>
@@ -119,6 +131,7 @@
   </div>
 
   <div id="board" class="hidden">
+    <button class="fab" id="suggestBtn">💡 Suggest a change</button>
     <div class="eyebrow">Vaughan Automotive · Corporate <span class="ln"></span></div>
     <h1 class="hero" id="heroTitle">THE FLOOR<br>IS OPEN</h1>
     <div class="accentbar"></div>
@@ -171,6 +184,13 @@
   </div>
 
 </div>
+<div class="modal hidden" id="fbModal"><div class="sheet">
+  <div class="mh"><h3>Suggest a change to the board</h3><button class="x" id="fbClose">✕</button></div>
+  <p class="msub">Ideas to improve the board itself — layout, wording, a feature. Sent to the host.</p>
+  <textarea id="fbText" class="ta" maxlength="400" placeholder="What would you change?"></textarea>
+  <button class="btn" id="fbSend">Send suggestion</button>
+  <div id="fbList"></div>
+</div></div>
 <div class="toast" id="toast"></div>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -202,8 +222,8 @@ var SEED_IDEAS={
 var HEART='<svg class="h" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-10-9.2C.6 9 1.4 5.8 4.3 4.9 6.4 4.2 8.6 5 12 8c3.4-3 5.6-3.8 7.7-3.1 2.9.9 3.7 4.1 2.3 6.9C19.5 16.4 12 21 12 21z"/></svg>';
 
 var db=null, boardId=null, ref=null, isHost=false;
-var state={meta:{},ideas:{},votes:{},comments:{},revisions:{}};
-var seen={}, seenInit=false, openCmt={}, openRev={};
+var state={meta:{},ideas:{},votes:{},comments:{},revisions:{},feedback:{}};
+var seen={}, seenInit=false, openCmt={}, openRev={}, fbOpen=false;
 
 function $(id){return document.getElementById(id);}
 function esc(s){return (s||"").replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
@@ -234,6 +254,11 @@ function addComment(iid,text){text=(text||"").trim();if(!text)return;db.ref("boa
 function addRevision(iid,text){text=(text||"").trim();if(!text)return;db.ref("boards/"+boardId+"/revisions/"+iid).push({text:text,by:myName(),ts:SV()});toast("Revision suggested");}
 function applyRevision(iid,rid){var r=state.revisions[iid]&&state.revisions[iid][rid];if(!r)return;db.ref("boards/"+boardId+"/ideas/"+iid+"/text").set(r.text);db.ref("boards/"+boardId+"/revisions/"+iid+"/"+rid).remove();toast("Revision applied");}
 function dropRevision(iid,rid){db.ref("boards/"+boardId+"/revisions/"+iid+"/"+rid).remove();}
+function addFeedback(text){text=(text||"").trim();if(!text||!boardId)return;db.ref("boards/"+boardId+"/feedback").push({text:text,by:myName(),ts:SV()});}
+function dropFeedback(id){db.ref("boards/"+boardId+"/feedback/"+id).remove();}
+function openFb(){fbOpen=true;$("fbModal").classList.remove("hidden");renderFeedback();}
+function closeFb(){fbOpen=false;$("fbModal").classList.add("hidden");}
+function renderFeedback(){var box=$("fbList");if(!box)return;if(!isHost){box.innerHTML="";return;}var arr=sortByTs(state.feedback);var h=arr.length?'<div class="ttl" style="margin-top:14px">Suggestions ('+arr.length+')</div>':'<div class="msub" style="margin-top:14px">No suggestions yet.</div>';arr.forEach(function(x){h+='<div class="fbitem"><div class="ft">'+esc(x.o.text)+(x.o.by?'<div class="by">— '+esc(x.o.by)+'</div>':'')+'</div><button class="mini" data-dropfb="'+x.id+'">✕</button></div>';});box.innerHTML=h;}
 function setReveal(on){db.ref("boards/"+boardId+"/meta/revealed").set(!!on);}
 
 function sortByTs(o){var a=[];for(var k in o){if(o[k])a.push({id:k,o:o[k]});}a.sort(function(x,y){return (x.o.ts||0)-(y.o.ts||0);});return a;}
@@ -304,6 +329,7 @@ function render(){
   });
   $("cols").innerHTML=html;
   ideaIds.forEach(function(k){seen[k]=1;}); seenInit=true;
+  if(fbOpen)renderFeedback();
 
   if(ks&&ks.sel){var el=document.querySelector(ks.sel);if(el){el.value=ks.val;el.focus();try{el.setSelectionRange(ks.pos,ks.pos);}catch(e){}}}
 }
@@ -323,6 +349,7 @@ document.addEventListener("click",function(e){
   if((el=t.closest("[data-sendrev]"))){var i=el.getAttribute("data-sendrev");var v=val('[data-addrev="'+i+'"]');if(v.trim()){addRevision(i,v);clr('[data-addrev="'+i+'"]');}return;}
   if((el=t.closest("[data-apply]"))){var p=el.getAttribute("data-apply").split("|");applyRevision(p[0],p[1]);return;}
   if((el=t.closest("[data-droprev]"))){var p=el.getAttribute("data-droprev").split("|");dropRevision(p[0],p[1]);return;}
+  if((el=t.closest("[data-dropfb]"))){dropFeedback(el.getAttribute("data-dropfb"));return;}
 });
 document.addEventListener("keydown",function(e){
   if(e.key!=="Enter")return;var t=e.target;
@@ -335,7 +362,7 @@ function attach(id){
   boardId=id; ref=db.ref("boards/"+id);
   ref.on("value",function(snap){
     var v=snap.val()||{};
-    state={meta:v.meta||{},ideas:v.ideas||{},votes:v.votes||{},comments:v.comments||{},revisions:v.revisions||{}};
+    state={meta:v.meta||{},ideas:v.ideas||{},votes:v.votes||{},comments:v.comments||{},revisions:v.revisions||{},feedback:v.feedback||{}};
     isHost=(state.meta&&state.meta.host)===DEVICE;
     render();
   },function(err){console.warn(err);$("cols").textContent="Database permission denied - open your Realtime Database rules to public (see setup guide).";});
@@ -366,6 +393,10 @@ if($("revealBtn")) $("revealBtn").addEventListener("click",function(){setReveal(
 if($("shareBtn")) $("shareBtn").addEventListener("click",function(){$("sharePanel").classList.toggle("hidden");});
 $("copyBtn").addEventListener("click",function(){navigator.clipboard.writeText(shareLink()).then(function(){toast("Link copied");},function(){toast("Copy failed");});});
 $("qrBig").addEventListener("click",function(){var l=shareLink();var w=window.open("","_blank");if(w)w.document.write('<title>QR</title><div style="font-family:sans-serif;text-align:center;padding:30px"><img src="https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=12&data='+encodeURIComponent(l)+'"><p style="word-break:break-all">'+l+'</p></div>');});
+if($("suggestBtn")) $("suggestBtn").addEventListener("click",openFb);
+if($("fbClose")) $("fbClose").addEventListener("click",closeFb);
+if($("fbSend")) $("fbSend").addEventListener("click",function(){var v=$("fbText").value;if(v.trim()){addFeedback(v);$("fbText").value="";toast("Sent — thanks!");}});
+if($("fbModal")) $("fbModal").addEventListener("click",function(e){if(e.target.id==="fbModal")closeFb();});
 window.addEventListener("hashchange",function(){location.reload();});
 </script>
 </body>
